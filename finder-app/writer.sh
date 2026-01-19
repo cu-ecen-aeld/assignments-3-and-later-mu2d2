@@ -18,6 +18,8 @@ then
     exit 1
 fi
 
+echo "Two arguments passed in."
+
 #this function was used with help from https://www.geeksforgeeks.org/linux-unix/dirname-command-in-linux-with-examples/
 #strip the directory name of the write file
 DIRPATH=$(dirname "$WRITEFILE")
@@ -25,7 +27,7 @@ DIRPATH=$(dirname "$WRITEFILE")
 #checks if filedirectory is a valid directory
 if [ -d "$DIRPATH" ]
 then
-    true
+    echo "Directory is valid"
 else #creates directories needed if it doesnt exist
     mkdir -p "$DIRPATH"
 fi
@@ -33,7 +35,7 @@ fi
 #checks if creating file succeded
 if touch "$WRITEFILE";
 then
-    true
+    echo "File created successfully"
 else
     echo "Error: Failed to create file" >&2
     exit 1 #exits with error code
@@ -41,3 +43,5 @@ fi
 
 #overwrites file
 echo "$WRITESTR" > "$WRITEFILE" 
+
+echo "$2 written in $1"

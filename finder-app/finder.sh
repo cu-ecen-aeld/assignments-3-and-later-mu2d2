@@ -19,16 +19,17 @@ then
     exit 1
 fi
 
+echo "Two arguments passed in."
 
 #checks if filedirectory is a valid directory
 if [ -d "$FILESDIR" ]
 then
-    true
+    echo "Directory is valid"
 else
     echo "Error: Directory not valid" >&2
     exit 1
 fi
-
-FILECOUNT=$(find "$FILESDIR" -type -d | wc -l) #gets file count in current directory(including itself)
-LINECOUNT=$(grep -r "$SEARCHSTR" "$FILESDIR" | wc -l) #gets mathcing line count in current directory(including itself)
+echo "searching "$FILESDIR" for "$SEARCHSTR""
+FILECOUNT=$(ls -1 "$FILESDIR" | wc -l) #gets file & subdirectory count in current directory
+LINECOUNT=$(grep -r "$SEARCHSTR" "$FILESDIR" | wc -l) #gets mathcing line count in current directory
 echo "Number of files are $FILECOUNT and the number of matching lines are $LINECOUNT" 
