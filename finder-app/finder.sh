@@ -28,6 +28,6 @@ else
     exit 1
 fi
 
-FILECOUNT=$(find $FILESDIR -type -d | wc -l) #gets file count in current directory(including itself)
-LINECOUNT=$(grep -r $SEARCHSTR $FILESDIR | wc -l) #gets mathcing line count in current directory(including itself)
+FILECOUNT=$(find "$FILESDIR" -type -d | wc -l) #gets file count in current directory(including itself)
+LINECOUNT=$(grep -r "$SEARCHSTR" "$FILESDIR" | wc -l) #gets mathcing line count in current directory(including itself)
 echo "Number of files are $FILECOUNT and the number of matching lines are $LINECOUNT" 

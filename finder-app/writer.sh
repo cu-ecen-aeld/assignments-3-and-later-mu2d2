@@ -19,9 +19,8 @@ fi
 
 echo "Two arguments passed in."
 
-touch $WRITEFILE #creates file
 #checks if creating file succeded
-if [ $? -eq 0]
+if touch "$WRITEFILE";
 then
     echo "File created successfully"
 else
@@ -30,6 +29,6 @@ else
 fi
 
 #overwrites file
-echo $WRITESTR > $WRITEFILE 
+echo "$WRITESTR" > "$WRITEFILE" 
 
 echo "$2 written in $1"
