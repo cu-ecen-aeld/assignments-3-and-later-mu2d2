@@ -10,6 +10,8 @@ FILESDIR=$1 # first argument directory path
 SEARCHSTR=$2 #2nd argument text string to search for
 
 #checks if exactly 2 arguments were passed
+
+#this if check was created with help from https://stackoverflow.com/questions/7989486/check-that-there-are-at-least-two-arguments-given-in-a-bash-script
 if [[ "$#" -ne 2 ]]
 then
     echo "Error: 2 arguments not supplied." >&2
