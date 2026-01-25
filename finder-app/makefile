@@ -3,10 +3,10 @@
 CC = $(CROSS_COMPILE)gcc
 
 default: writer.o
-	cc -o writer writer.o
+	$(CC) -o writer writer.o
 
 writer.o : writer.c
-	cc -c writer.c
+	$(CC) -c writer.c
 
 clean:
 	rm -f writer writer.o
