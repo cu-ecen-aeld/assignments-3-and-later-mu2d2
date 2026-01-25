@@ -24,7 +24,7 @@ int main (int argc, char *argv[])
 {
     openlog(NULL, 0, LOG_USER);
 
-    //check for valid # of args
+    //check for valid # of args including writer 
     if(argc != 3)
     {
         syslog(LOG_ERR, "Error: not enough arguments");
@@ -36,7 +36,7 @@ int main (int argc, char *argv[])
         syslog(LOG_ERR, "Error: null parameter(s)");
         return 1;
     }
-
+    //assume directory is created
     //open file descriptor to given filepath 
     // owner r/w, usr & grp rd only
     int fd = open(argv[1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
