@@ -150,4 +150,5 @@ sudo chmod u+s ${OUTDIR}/rootfs/bin/busybox
 # TODO: Create initramfs.cpio.gz
 echo "Creating initramfs.cpio.gz file"
 cd ${OUTDIR}/rootfs
-find . | cpio -o -H newc | gzip > ${OUTDIR}/initramfs.cpio.gz
+find . | cpio -ov -H newc --owner root:root > ${OUTDIR}/initramfs.cpio
+gzip -f ${OUTDIR}/initramfs.cpio
