@@ -139,8 +139,21 @@ cp -a writer ${OUTDIR}/rootfs/home/
 # on the target rootfs
 echo "Copying finder scripts and executables"
 cp -a finder.sh finder-test.sh ${OUTDIR}/rootfs/home/ 2>/dev/null 
-cp -a conf ${OUTDIR}/rootfs/home/ 2>/dev/null 
 cp -a autorun-qemu.sh ${OUTDIR}/rootfs/home
+
+#remove broken symlink and copy conf files directly to replicate repo setup
+#rootfs conf directory
+rm -f ${OUTDIR}/rootfs/conf
+mkdir -p ${OUTDIR}/rootfs/conf
+cp -a ${FINDER_APP_DIR}/conf/. ${OUTDIR}/rootfs/conf/
+
+#home conf directory
+rm -f ${OUTDIR}/rootfs/home/conf
+mkdir -p ${OUTDIR}/rootfs/home/conf
+cp -a ${FINDER_APP_DIR}/conf/. ${OUTDIR}/rootfs/home/conf/
+
+#add execute permission to autorun-qemu.sh
+chmod +x ${OUTDIR}/rootfs/home/autorun-qemu.sh
 
 # TODO: Chown the root directory
 echo "Changing ownership to root"
