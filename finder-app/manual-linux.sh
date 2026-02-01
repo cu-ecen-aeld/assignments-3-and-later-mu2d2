@@ -94,21 +94,33 @@ make CONFIG_PREFIX=${OUTDIR}/rootfs ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} 
 
 # TODO: Add library dependencies to rootfs
 echo "Library dependencies"
-${CROSS_COMPILE}readelf -a ${OUTDIR}/rootfs/bin/busybox | grep "program interpreter"
-${CROSS_COMPILE}readelf -a ${OUTDIR}/rootfs/bin/busybox | grep "Shared library"
-
 SYSROOT=$(${CROSS_COMPILE}gcc -print-sysroot)
 
 #reference: https://community.unix.com/t/solved-help-with-using-tr-removing-white-spaces/296416
 #TODO: figure out how to copy libraries outputted from grep and copy source here.
 #reads the output of readelf, searches for program interpreter and shared lib, finds the path and sets to variable
 #reference:https://stackoverflow.com/questions/31333337/how-can-i-get-the-source-code-paths-from-an-elf-files-debug-information#:~:text=7%20Answers,lmo%20Over%20a%20year%20ago
-INTERPRETER=$( ${CROSS_COMPILE}readelf -a ${OUTDIR}/rootfs/bin/busybox | grep "program interpreter" | awk -F': ' '{print $2}' | tr -d ' ')
-LIBCXX=$( ${CROSS_COMPILE}readelf -a ${OUTDIR}/rootfs/bin/busybox | grep "Shared library" | awk -F': ' '{print $2}' | tr -d ' ')
+INTERPRETER=$( ${CROSS_COMPILE}readelf -a ${OUTDIR}/rootfs/bin/busybox | sed -n 's/.*Requesting program interpreter: \(.*\)\]/\1/p')
+LIBCXX=$( ${CROSS_COMPILE}readelf -a ${OUTDIR}/rootfs/bin/busybox | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p')
 
 #copy process
+
+#program interpreter to rootfs
+mkdir -p ${OUTDIR}/rootfs/lib ${OUTDIR}/rootfs/lib64
 cp -a ${SYSROOT}${INTERPRETER} ${OUTDIR}/rootfs${INTERPRETER}
-cp -a ${SYSROOT}${LIBCXX} ${OUTDIR}/rootfs/lib64/
+
+#copy each needed shared library
+#loop through each library in LIBCXX variable
+for LIB in ${LIBCXX}; do
+     if [ -e ${SYSROOT}/lib64/${LIB} ]; then #check if lib exists in lib64
+    cp -a ${SYSROOT}/lib64/${LIB} ${OUTDIR}/rootfs/lib64/
+  elif [ -e ${SYSROOT}/lib/${LIB} ]; then #check if lib exists in lib
+    cp -a ${SYSROOT}/lib/${LIB} ${OUTDIR}/rootfs/lib/
+  else #if not found in either location, print error and exit
+    echo "ERROR: missing ${LIB} in sysroot"
+    exit 1
+  fi
+done
 
 # TODO: Make device nodes
 echo "Creating device nodes"
@@ -132,9 +144,10 @@ cp -a conf ${OUTDIR}/rootfs/home/ 2>/dev/null
 # TODO: Chown the root directory
 echo "Changing ownership to root"
 sudo chown -R root:root ${OUTDIR}/rootfs
+#setting the setuid bit for busybox
+sudo chmod u+s ${OUTDIR}/rootfs/bin/busybox
 
 # TODO: Create initramfs.cpio.gz
 echo "Creating initramfs.cpio.gz file"
 cd ${OUTDIR}/rootfs
 find . | cpio -o -H newc | gzip > ${OUTDIR}/initramfs.cpio.gz
-gzip -d ${OUTDIR}/initramfs.cpio.gz
