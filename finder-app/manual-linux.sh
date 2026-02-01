@@ -2,6 +2,10 @@
 # Script outline to install and build kernel.
 # Author: Siddhant Jajoo.
 
+#Editor: Muthuu SVS
+#reference: https://kernelnewbies.org/KernelBuild
+# https://ftp.kh.edu.tw/Linux/Redhat/en_6.2/doc/ref-guide/s1-sysadmin-build-kernel.htm#:~:text=It%20is%20important%20to%20begin,to%20be%20the%20default%20settings.
+
 set -e
 set -u
 
@@ -34,7 +38,15 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
     echo "Checking out version ${KERNEL_VERSION}"
     git checkout ${KERNEL_VERSION}
 
+    echo "Building kernel for ${ARCH} architecture"
     # TODO: Add your kernel build steps here
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} mrproper #kernel clean up arch specifc headers
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} defconfig
+
+    #building the image and modules and tree
+    make -j4 ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} Image modules dtbs
+
+    cp arch/${ARCH}/boot/Image ${OUTDIR}/Image
 fi
 
 echo "Adding the Image in outdir"
@@ -48,6 +60,13 @@ then
 fi
 
 # TODO: Create necessary base directories
+echo "Creating rootfs directories"
+mkdir -p ${OUTDIR}/rootfs
+cd ${OUTDIR}/rootfs
+
+mkdir -p bin dev etc home lib lib64 proc sbin sys tmp usr var
+mkdir -p usr/bin usr/lib usr/sbin
+mkdir -p var/log
 
 cd "$OUTDIR"
 if [ ! -d "${OUTDIR}/busybox" ]
@@ -56,25 +75,55 @@ git clone git://busybox.net/busybox.git
     cd busybox
     git checkout ${BUSYBOX_VERSION}
     # TODO:  Configure busybox
+    echo "Configuring busybox"
+    make distclean
+    make defconfig
 else
     cd busybox
 fi
 
 # TODO: Make and install busybox
+echo "Building and installing busybox"
+make -j4 ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE}
 
-echo "Library dependencies"
-${CROSS_COMPILE}readelf -a bin/busybox | grep "program interpreter"
-${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library"
+echo "Installing busybox"
+make CONFIG_PREFIX=${OUTDIR}/rootfs ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} install
+
 
 # TODO: Add library dependencies to rootfs
+echo "Library dependencies"
+${CROSS_COMPILE}readelf -a ${OUTDIR}/rootfs/bin/busybox | grep "program interpreter"
+${CROSS_COMPILE}readelf -a ${OUTDIR}/rootfs/bin/busybox | grep "Shared library"
+
+SYSROOT=$(${CROSS_COMPILE}gcc -print-sysroot)
+
+#TODO: figure out how to copy libraries outputted from grep and copy source here.
 
 # TODO: Make device nodes
+echo "Creating device nodes"
+sudo mknod -m 666 ${OUTDIR}/rootfs/dev/null c 1 3
+sudo mknod -m 600 ${OUTDIR}/rootfs/dev/console c 5 1
 
 # TODO: Clean and build the writer utility
+echo "Building writer utility"
+cd ${FINDER_APP_DIR}
+make clean
+make CROSS_COMPILE=${CROSS_COMPILE}
+cp -a writer ${OUTDIR}/rootfs/home/
+
 
 # TODO: Copy the finder related scripts and executables to the /home directory
 # on the target rootfs
+echo "Copying finder scripts and executables"
+cp -a finder.sh finder-test.sh ${OUTDIR}/rootfs/home/ 2>/dev/null 
+cp -a conf ${OUTDIR}/rootfs/home/ 2>/dev/null 
 
 # TODO: Chown the root directory
+echo "Changing ownership to root"
+sudo chown -R root:root ${OUTDIR}/rootfs
 
 # TODO: Create initramfs.cpio.gz
+echo "Creating initramfs.cpio.gz file"
+cd ${OUTDIR}/rootfs
+find . | cpio -o -H newc | gzip > ${OUTDIR}/initramfs.cpio.gz
+gzip -d ${OUTDIR}/initramfs.cpio.gz
