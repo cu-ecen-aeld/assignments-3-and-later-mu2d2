@@ -43,8 +43,11 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
     make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} mrproper #kernel clean up arch specifc headers
     make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} defconfig
 
-    #building the image and modules and tree
-    make -j4 ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} Image modules dtbs
+    echo "building image and modules"
+    #building the modules and tree
+    make -j4 ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} all
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} modules 
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} dtbs 
 
     cp arch/${ARCH}/boot/Image ${OUTDIR}/Image
 fi
@@ -97,7 +100,16 @@ ${CROSS_COMPILE}readelf -a ${OUTDIR}/rootfs/bin/busybox | grep "Shared library"
 
 SYSROOT=$(${CROSS_COMPILE}gcc -print-sysroot)
 
+#reference: https://community.unix.com/t/solved-help-with-using-tr-removing-white-spaces/296416
 #TODO: figure out how to copy libraries outputted from grep and copy source here.
+#reads the output of readelf, searches for program interpreter and shared lib, finds the path and sets to variable
+#reference:https://stackoverflow.com/questions/31333337/how-can-i-get-the-source-code-paths-from-an-elf-files-debug-information#:~:text=7%20Answers,lmo%20Over%20a%20year%20ago
+INTERPRETER=$( ${CROSS_COMPILE}readelf -a ${OUTDIR}/rootfs/bin/busybox | grep "program interpreter" | awk -F': ' '{print $2}' | tr -d ' ')
+LIBCXX=$( ${CROSS_COMPILE}readelf -a ${OUTDIR}/rootfs/bin/busybox | grep "Shared library" | awk -F': ' '{print $2}' | tr -d ' ')
+
+#copy process
+cp -a ${SYSROOT}${INTERPRETER} ${OUTDIR}/rootfs${INTERPRETER}
+cp -a ${SYSROOT}${LIBCXX} ${OUTDIR}/rootfs/lib64/
 
 # TODO: Make device nodes
 echo "Creating device nodes"
