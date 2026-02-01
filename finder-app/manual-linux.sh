@@ -44,11 +44,9 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
     make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} defconfig
 
     echo "building image and modules"
-    #building the modules and tree
-    make -j4 ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} all
-    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} modules 
-    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} dtbs 
-
+    #building the modules and tree added benchmarking to test how fast build will take
+    time make -j$(nproc) ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} Image modules dtbs
+   
     cp arch/${ARCH}/boot/Image ${OUTDIR}/Image
 fi
 
@@ -87,7 +85,8 @@ fi
 
 # TODO: Make and install busybox
 echo "Building and installing busybox"
-make -j4 ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE}
+#benchmarking the build time
+time make -j$(nproc) ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE}
 
 echo "Installing busybox"
 make CONFIG_PREFIX=${OUTDIR}/rootfs ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} install
