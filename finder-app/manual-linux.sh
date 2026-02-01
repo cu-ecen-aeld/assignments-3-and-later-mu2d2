@@ -140,6 +140,7 @@ cp -a writer ${OUTDIR}/rootfs/home/
 echo "Copying finder scripts and executables"
 cp -a finder.sh finder-test.sh ${OUTDIR}/rootfs/home/ 2>/dev/null 
 cp -a conf ${OUTDIR}/rootfs/home/ 2>/dev/null 
+cp -a autorun-qemu.sh ${OUTDIR}/rootfs/home
 
 # TODO: Chown the root directory
 echo "Changing ownership to root"
