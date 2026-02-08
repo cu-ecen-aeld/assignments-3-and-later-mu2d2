@@ -2,6 +2,9 @@
 
 CC = $(CROSS_COMPILE)gcc
 
+.PHONY: all
+all: default
+
 default: writer.o
 	$(CC) -o writer writer.o
 
