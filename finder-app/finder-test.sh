@@ -8,7 +8,20 @@ set -u
 NUMFILES=10
 WRITESTR=AELD_IS_FUN
 WRITEDIR=/tmp/aeld-data
-username=$(cat conf/username.txt)
+
+CONF_DIR=/etc/finder-app/conf
+RESULT_FILE=/tmp/assignment4-result.txt
+
+#error checking for config directory
+# Read username from config directory
+if [ ! -f "$CONF_DIR/username.txt" ]; 
+then
+    echo "ERROR: missing config file: $CONF_DIR/username.txt"
+    exit 1
+fi
+
+username=$(cat "$CONF_DIR/username.txt")
+
 
 if [ $# -lt 3 ]
 then
@@ -31,8 +44,15 @@ echo "Writing ${NUMFILES} files containing string ${WRITESTR} to ${WRITEDIR}"
 
 rm -rf "${WRITEDIR}"
 
+#error checking for assignment file
+if [ ! -f "$CONF_DIR/assignment.txt" ]; 
+then
+    echo "ERROR: missing config file: $CONF_DIR/assignment.txt"
+    exit 1
+fi
+
 # create $WRITEDIR if not assignment1
-assignment=`cat ../conf/assignment.txt`
+assignment=`cat "$CONF_DIR/assignment.txt"`
 echo "$assignment"
 if [ $assignment != 'assignment1' ]
 then
@@ -52,16 +72,18 @@ fi
 
 for i in $( seq 1 $NUMFILES)
 do
-	./writer "$WRITEDIR/${username}$i.txt" "$WRITESTR"
+	writer "$WRITEDIR/${username}$i.txt" "$WRITESTR"
 done
 
-OUTPUTSTRING=$(./finder.sh "$WRITEDIR" "$WRITESTR")
+OUTPUTSTRING=$(finder.sh "$WRITEDIR" "$WRITESTR")
+#writes output of finder to results.txt
+echo "$OUTPUTSTRING" > "$RESULT_FILE"
 
 # remove temporary directories
 rm -rf /tmp/aeld-data
 
 set +e
-echo ${OUTPUTSTRING} | grep "${MATCHSTR}"
+echo "$OUTPUTSTRING" | grep "${MATCHSTR}"
 if [ $? -eq 0 ]; then
 	echo "success"
 	exit 0
