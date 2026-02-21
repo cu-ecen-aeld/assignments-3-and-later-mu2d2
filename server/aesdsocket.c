@@ -17,7 +17,17 @@ Date: 02-12-2026
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/queue.h>
+
+//incase SLIST_FOREACH_SAFE is not defined by this toolchain queue.h, define it here
+#ifndef SLIST_FOREACH_SAFE
+#define SLIST_FOREACH_SAFE(var, head, field, tvar) \
+    for ((var) = SLIST_FIRST((head)); \
+            (var) && ((tvar) = SLIST_NEXT((var), field), 1); \
+            (var) = (tvar))
+#endif
+
 #include <pthread.h>
+#include <time.h>
 #include <errno.h>
 //--------------------------------------------------
 //MACROS
@@ -43,6 +53,9 @@ static const char *pidfile = "/var/run/aesdsocket.pid";
 static pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER;//for /var/tmp/aesdsocketdata file access
 static pthread_mutex_t list_mutex = PTHREAD_MUTEX_INITIALIZER;//for linked list of threads
 
+//timestamp thread id
+static pthread_t timestamp_thread_id;
+
 //Thread Node using queue.h
 struct thread_node 
 {
@@ -57,24 +70,8 @@ SLIST_HEAD(thread_list_head, thread_node);
 static struct thread_list_head thread_list = SLIST_HEAD_INITIALIZER(thread_list);
 
 
-
-
 //------------------------------------------------------
 //helper functions
-
-static void cleanup_threads(void)
-{
-    struct thread_node *node;
-    while (!SLIST_EMPTY(&thread_list)) 
-    {
-        node = SLIST_FIRST(&thread_list);
-        pthread_join(node->thread_id, NULL);
-        close(node->client_fd);
-        SLIST_REMOVE_HEAD(&thread_list, entries);
-        free(node);
-    }
-}
-
 
 // write current PID to pidfile (called after daemonize so PID is the real daemon PID)
 static int write_pidfile(const char *path)
@@ -126,9 +123,29 @@ static void signal_handler(int signum)
 static int write_all(int fd, const char *buf, size_t len)
 {
     size_t off = 0;
-    while (off < len) {
+    while (off < len) 
+    {
         ssize_t w = write(fd, buf + off, len - off);
-        if (w < 0) return -1;
+        if (w < 0)
+        {
+            //retry if interrupted by signal
+            if (errno == EINTR)
+            {
+                continue;
+            }
+            //for completeness if fd ever becomes non-blocking
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                continue;
+            }
+            return -1;
+        } 
+        //error checking
+        if (w == 0)
+        {
+            errno = EIO;
+            return -1;
+        }
         off += (size_t)w;
     }
     return 0;
@@ -142,7 +159,26 @@ static int send_all(int fd, const char *buf, size_t len)
     size_t off = 0;
     while (off < len) {
         ssize_t s = send(fd, buf + off, len - off, 0);
-        if (s < 0) return -1;
+        if (s < 0)
+        {
+            //retry if interrupted by signal
+            if (errno == EINTR)
+            {
+                continue;
+            }
+            //for completeness if fd ever becomes non-blocking
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                continue;
+            }
+            return -1;
+        } 
+        //error checking
+        if (s == 0)
+        {
+            errno = EIO;
+            return -1;
+        }
         off += (size_t)s;
     }
     return 0;
@@ -203,9 +239,20 @@ static int daemonize(void)
 //helper function to append a packet to the output file and then send the full file to the client
 static int append_packet_and_send_file(int client_fd, const char *packet, size_t packet_len, char *io_buf, size_t io_buf_len)
 {
+    int output_fd;
     // Append packet to file
-    int output_fd = open(outputfile, O_WRONLY | O_CREAT | O_APPEND, 0644);
-    if (output_fd < 0)
+    //loops to handle EINTR by retrying open, 
+    //since we want to ensure the packet is written even if a signal interrupts the open call
+    while(1)
+    {
+        output_fd = open(outputfile, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (output_fd < 0 && errno == EINTR)
+        {
+            continue;
+        }
+        break;
+    }
+    if(output_fd < 0)
     {
         return -1;
     }
@@ -217,29 +264,47 @@ static int append_packet_and_send_file(int client_fd, const char *packet, size_t
     }
     close(output_fd);
 
-    // Send full file back to client (streaming)
-    int read_fd = open(outputfile, O_RDONLY);
-    if (read_fd < 0)
+    int read_fd;
+    while(1)
+    {
+        read_fd = open(outputfile, O_RDONLY);
+        if (read_fd < 0 && errno == EINTR)
+        {
+            continue;
+        }
+        break;
+    }
+    if(read_fd < 0)
     {
         return -1;
     }
 
     ssize_t bytes_read;
-    while ((bytes_read = read(read_fd, io_buf, io_buf_len)) > 0)
+    while(1)
     {
+        bytes_read = read(read_fd, io_buf, io_buf_len);
+        if (bytes_read < 0)
+        {
+            if (errno == EINTR)//retry if interrupted by signal
+            {
+                continue;
+            }
+            close(read_fd);
+            return -1;
+        }
+        
+        if(bytes_read == 0)// end of file
+        {
+            break;
+        }
+
         if (send_all(client_fd, io_buf, (size_t)bytes_read) < 0)
         {
             close(read_fd);
             return -1;
         }
     }
-
     close(read_fd);
-
-    if (bytes_read < 0)
-    {
-        return -1;
-    }
 
     return 0;
 }
@@ -251,9 +316,6 @@ static void *connection_thread(void *arg)
 {
     struct thread_node *node = (struct thread_node *)arg;
     int new_socket = node->client_fd;
-
-    struct sockaddr_in address;
-    socklen_t addrlen = sizeof(address);
 
     char buffer[BUFFER_SIZE];
 
@@ -300,7 +362,11 @@ static void *connection_thread(void *arg)
             //could be partial packet without newline, but we will write it anyway to avoid data loss
             if (accumulated_size > 0)
             {
-                if (append_packet_and_send_file(new_socket, accumulated_data, accumulated_size, buffer, BUFFER_SIZE) < 0)
+                pthread_mutex_lock(&file_mutex);
+                int rc = append_packet_and_send_file(new_socket, accumulated_data, accumulated_size, buffer, BUFFER_SIZE);
+                pthread_mutex_unlock(&file_mutex);
+
+                if (rc < 0)
                 {
                     syslog(LOG_ERR, "Failed to append/send final packet for client %s", node->ipstr);
                     goto thread_cleanup;
@@ -349,7 +415,11 @@ static void *connection_thread(void *arg)
         {
             size_t packet_len = (size_t)(packet_end - accumulated_data + 1);
 
-            if (append_packet_and_send_file(new_socket, accumulated_data, packet_len, buffer, BUFFER_SIZE) < 0)
+            pthread_mutex_lock(&file_mutex);
+            int rc = append_packet_and_send_file(new_socket, accumulated_data, packet_len, buffer, BUFFER_SIZE);
+            pthread_mutex_unlock(&file_mutex);
+
+            if (rc < 0)
             {
                 syslog(LOG_ERR, "Failed to append/send packet for client %s", node->ipstr);
                 goto thread_cleanup;
@@ -377,6 +447,55 @@ thread_cleanup:
     return NULL;
 }
 
+//timestamp thread function
+//appends timestamp string to /var/tmp/aesdsocketdata every 10 seconds
+//format: "timestamp:time" where time uses RFC 2822 compliant strftime format
+static void *timestamp_thread_func(void *arg)
+{
+    (void)arg;
+    while (!exit_requested)
+    {
+        // Sleep for 10 seconds or until exit_requested is set
+        for (int i = 0; i < 10 && !exit_requested; i++)
+        {
+            sleep(1);
+        }
+        if(exit_requested)
+        {
+            break;
+        }
+
+        //get current wall clk time
+        time_t now = time(NULL);
+        struct tm tm_info;
+        localtime_r(&now, &tm_info);
+
+        char timestamp[128];
+        strftime(timestamp, sizeof(timestamp), "%a, %d %b %Y %H:%M:%S %z", &tm_info);
+
+        char timestamp_line[256];
+        int len = snprintf(timestamp_line, sizeof(timestamp_line), "timestamp:%s\n", timestamp);
+        if (len < 0 || (size_t)len >= sizeof(timestamp_line))
+        {
+            syslog(LOG_ERR, "Failed to format timestamp string");
+            continue;
+        }
+
+        //lock file so timestamp write is atomic with respect to client threads appending packets, and to avoid interleaving timestamp with packet data
+        pthread_mutex_lock(&file_mutex);
+        int output_fd = open(outputfile, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (output_fd >= 0)
+        {
+            write_all(output_fd, timestamp_line, strlen(timestamp_line));
+            close(output_fd);
+        }
+        pthread_mutex_unlock(&file_mutex);
+
+        
+    }
+    return NULL;
+}
+
 
 //----------------------------------------
 //socket program main loop
@@ -385,7 +504,6 @@ int main(int argc, char *argv[])
     int new_socket;
     struct sockaddr_in address;
     socklen_t addrlen = sizeof(address);
-    char buffer[BUFFER_SIZE];
 
     //this code section was fully generated by ChatGPT
     //link to chat session: https://chatgpt.com/share/6990b762-3dd8-8008-b70d-03f9fc138aca
@@ -495,6 +613,15 @@ int main(int argc, char *argv[])
         return -1;
     }
 
+    // Start timestamp thread
+    if (pthread_create(&timestamp_thread_id, NULL, timestamp_thread_func, NULL) != 0)
+    {
+        syslog(LOG_ERR, "Failed to create timestamp thread");
+        close(server_fd);
+        closelog();
+        return -1;
+    }
+
     while (1)
     {
         //this code section was partially generated by ChatGPT
@@ -561,16 +688,15 @@ int main(int argc, char *argv[])
 
         //join completed threads to clean up resources (non-blocking join)
         pthread_mutex_lock(&list_mutex);
-        struct thread_node *iter;
-        SLIST_FOREACH(iter, &thread_list, entries)//iterate through thread list to find completed threads
+        struct thread_node *iter, *tmp;
+        SLIST_FOREACH_SAFE(iter, &thread_list, entries, tmp)//iterate through thread list to find completed threads
         {
             if (iter->completed)//completed flag
             {
                 SLIST_REMOVE(&thread_list, iter, thread_node, entries);
                 pthread_mutex_unlock(&list_mutex);//unlock before join to avoid deadlock if thread tries to lock list_mutex during cleanup
+                
                 pthread_join(iter->thread_id, NULL);
-
-                close(iter->client_fd);
                 free(iter);
 
                 pthread_mutex_lock(&list_mutex);//re-lock after join to continue iterating safely
@@ -607,7 +733,12 @@ int main(int argc, char *argv[])
     }
 
     //cleanup files and syslog
-    close(server_fd);
+    pthread_join(timestamp_thread_id, NULL);//clean up timestamp thread
+    if (server_fd != -1)
+    {
+        close(server_fd);
+        server_fd = -1;
+    }
     unlink(outputfile);
     unlink(pidfile);
     closelog();
