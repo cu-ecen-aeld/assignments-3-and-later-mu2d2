@@ -5,7 +5,7 @@ set -eu
 
 NAME="aesdsocket"
 DAEMON="/usr/bin/${NAME}"
-PIDFILE="/var/run/${NAME}.pid"
+PIDFILE="/var/tmp/${NAME}.pid"
 
 start() {
     echo "Starting $NAME..."
