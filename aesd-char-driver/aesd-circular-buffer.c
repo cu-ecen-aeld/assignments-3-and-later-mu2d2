@@ -29,9 +29,33 @@
 struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct aesd_circular_buffer *buffer,
             size_t char_offset, size_t *entry_offset_byte_rtn )
 {
-    /**
-    * TODO: implement per description
-    */
+    // How many valid entries are currently in the buffer
+    uint8_t num_entries = buffer->full ? AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED : (buffer->in_offs - buffer->out_offs + AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+
+    // Running total of bytes walked so far across all entries visited
+    size_t current_byte_pos = 0;
+
+    // Walk entries from oldest (out_offs) to newest, one at a time
+    uint8_t i;
+    for (i = 0; i < num_entries; i++) 
+    {
+        // Wrap the index so it stays within [0, MAX)
+        uint8_t idx = (buffer->out_offs + i) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+        struct aesd_buffer_entry *entry = &buffer->entry[idx];
+
+        // Check if char_offset falls inside this entry's byte range
+        if (current_byte_pos + entry->size > char_offset) 
+        {
+            // Store how many bytes into this entry the offset lands
+            *entry_offset_byte_rtn = char_offset - current_byte_pos;
+            return entry;
+        }
+
+        // char_offset is past this entry; accumulate its size and keep looking
+        current_byte_pos += entry->size;
+    }
+
+    // char_offset is beyond all buffered data
     return NULL;
 }
 
@@ -44,9 +68,21 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 */
 void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
 {
-    /**
-    * TODO: implement per description
-    */
+    // Write the new entry into the slot at the current write position
+    buffer->entry[buffer->in_offs] = *add_entry;
+
+    // If the buffer was already full, the write above clobbered the oldest entry,
+    // so advance out_offs to point at the new oldest entry
+    if (buffer->full)
+    {
+        buffer->out_offs = (buffer->out_offs + 1) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+    }
+        
+    // Advance the write pointer, wrapping from the last slot back to slot 0
+    buffer->in_offs = (buffer->in_offs + 1) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+
+    // If the write pointer has caught up to the read pointer, all slots are occupied
+    buffer->full = (buffer->in_offs == buffer->out_offs);
 }
 
 /**
