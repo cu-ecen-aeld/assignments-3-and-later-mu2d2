@@ -83,13 +83,13 @@ static ssize_t aesd_write(struct file *filp, const char __user *buf, size_t coun
                 loff_t *f_pos)
 {
     struct aesd_dev *dev = filp->private_data;
-    struct aesd_buffer_entry new_entry;
     const char *evicted;
+    char *new_buf;
     char *kbuf;
 
     PDEBUG("write %zu bytes with offset %lld", count, *f_pos);
 
-    /* kmalloc and copy_from_user outside the lock — no shared state accessed */
+    /* Copy incoming data to a local buffer outside the lock — no shared state */
     kbuf = kmalloc(count, GFP_KERNEL);
     if (!kbuf)
         return -ENOMEM;
@@ -99,20 +99,39 @@ static ssize_t aesd_write(struct file *filp, const char __user *buf, size_t coun
         return -EFAULT;
     }
 
-    new_entry.buffptr = kbuf;
-    new_entry.size    = count;
-
     if (mutex_lock_interruptible(&dev->buf_mutex)) {
         kfree(kbuf);
         return -ERESTARTSYS;
     }
 
-    evicted = aesd_circular_buffer_add_entry(&dev->buffer, &new_entry);
-    if (evicted)
-        kfree((void *)evicted);
+    /* Grow working_entry to append the new bytes */
+    new_buf = krealloc(dev->working_entry.buffptr,
+                       dev->working_entry.size + count,
+                       GFP_KERNEL);
+    if (!new_buf) {
+        kfree(kbuf);
+        mutex_unlock(&dev->buf_mutex);
+        return -ENOMEM;
+    }
+
+    memcpy(new_buf + dev->working_entry.size, kbuf, count);
+    kfree(kbuf);
+
+    dev->working_entry.buffptr  = new_buf;
+    dev->working_entry.size    += count;
+
+    /* Only commit to the circular buffer once a \n terminator is present */
+    if (memchr(dev->working_entry.buffptr, '\n', dev->working_entry.size)) {
+        evicted = aesd_circular_buffer_add_entry(&dev->buffer, &dev->working_entry);
+        if (evicted)
+            kfree((void *)evicted);
+
+        /* circular buffer now owns the buffptr — reset working entry */
+        dev->working_entry.buffptr = NULL;
+        dev->working_entry.size    = 0;
+    }
 
     mutex_unlock(&dev->buf_mutex);
-
     return (ssize_t)count;
 }
 
