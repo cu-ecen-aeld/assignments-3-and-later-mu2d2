@@ -46,7 +46,7 @@ int aesd_release(struct inode *inode, struct file *filp)
     return 0;
 }
 
-ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
+static ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
                 loff_t *f_pos)
 {
     struct aesd_dev *dev = filp->private_data;
@@ -56,22 +56,30 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 
     PDEBUG("read %zu bytes with offset %lld", count, *f_pos);
 
+    if (mutex_lock_interruptible(&dev->buf_mutex))
+        return -ERESTARTSYS;
+
     entry = aesd_circular_buffer_find_entry_offset_for_fpos(&dev->buffer,
                                                              *f_pos,
                                                              &entry_offset);
     if (!entry)
-        return 0;
+        goto out;
 
     retval = (ssize_t)min(count, entry->size - entry_offset);
 
-    if (copy_to_user(buf, entry->buffptr + entry_offset, retval))
-        return -EFAULT;
+    if (copy_to_user(buf, entry->buffptr + entry_offset, retval)) {
+        retval = -EFAULT;
+        goto out;
+    }
 
     *f_pos += retval;
+
+out:
+    mutex_unlock(&dev->buf_mutex);
     return retval;
 }
 
-ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
+static ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 loff_t *f_pos)
 {
     struct aesd_dev *dev = filp->private_data;
@@ -81,6 +89,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 
     PDEBUG("write %zu bytes with offset %lld", count, *f_pos);
 
+    /* kmalloc and copy_from_user outside the lock — no shared state accessed */
     kbuf = kmalloc(count, GFP_KERNEL);
     if (!kbuf)
         return -ENOMEM;
@@ -93,9 +102,16 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     new_entry.buffptr = kbuf;
     new_entry.size    = count;
 
+    if (mutex_lock_interruptible(&dev->buf_mutex)) {
+        kfree(kbuf);
+        return -ERESTARTSYS;
+    }
+
     evicted = aesd_circular_buffer_add_entry(&dev->buffer, &new_entry);
     if (evicted)
         kfree((void *)evicted);
+
+    mutex_unlock(&dev->buf_mutex);
 
     return (ssize_t)count;
 }
