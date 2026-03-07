@@ -28,10 +28,10 @@
 
 struct aesd_dev
 {
-    struct aesd_circular_buffer buffer;     /* ring buffer of the last 10 write commands  */
-    struct aesd_buffer_entry    working_entry; /* partial write accumulated until \n       */
-    struct mutex                buf_mutex;  /* serialises concurrent read/write access    */
-    struct cdev cdev;     /* Char device structure      */
+    struct aesd_circular_buffer buffer;     // ring buffer of the last 10 write commands
+    struct aesd_buffer_entry    working_entry; // partial write accumulated until \n
+    struct mutex                buf_mutex;  // serialises concurrent read/write access
+    struct cdev cdev;     // Char device structure
 };
 
 

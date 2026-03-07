@@ -89,7 +89,7 @@ static ssize_t aesd_write(struct file *filp, const char __user *buf, size_t coun
 
     PDEBUG("write %zu bytes with offset %lld", count, *f_pos);
 
-    /* Copy incoming data to a local buffer outside the lock — no shared state */
+    // Copy incoming data to a local buffer outside the lock, no shared state
     kbuf = kmalloc(count, GFP_KERNEL);
     if (!kbuf)
         return -ENOMEM;
@@ -104,7 +104,7 @@ static ssize_t aesd_write(struct file *filp, const char __user *buf, size_t coun
         return -ERESTARTSYS;
     }
 
-    /* Grow working_entry to append the new bytes */
+    // Grow working_entry to append the new bytes
     new_buf = krealloc(dev->working_entry.buffptr,
                        dev->working_entry.size + count,
                        GFP_KERNEL);
@@ -120,13 +120,13 @@ static ssize_t aesd_write(struct file *filp, const char __user *buf, size_t coun
     dev->working_entry.buffptr  = new_buf;
     dev->working_entry.size    += count;
 
-    /* Only commit to the circular buffer once a \n terminator is present */
+    // Only commit to the circular buffer once a \n terminator is present
     if (memchr(dev->working_entry.buffptr, '\n', dev->working_entry.size)) {
         evicted = aesd_circular_buffer_add_entry(&dev->buffer, &dev->working_entry);
         if (evicted)
             kfree((void *)evicted);
 
-        /* circular buffer now owns the buffptr — reset working entry */
+        // circular buffer now owns the buffptr, reset working entry
         dev->working_entry.buffptr = NULL;
         dev->working_entry.size    = 0;
     }
@@ -192,7 +192,7 @@ void aesd_cleanup_module(void)
 
     cdev_del(&aesd_device.cdev);
 
-    /* Free every buffptr still held in the circular buffer */
+    // Free every buffptr still held in the circular buffer
     AESD_CIRCULAR_BUFFER_FOREACH(entry, &aesd_device.buffer, index) {
         if (entry->buffptr) {
             kfree(entry->buffptr);
@@ -200,7 +200,7 @@ void aesd_cleanup_module(void)
         }
     }
 
-    /* Free any partial (unterminated) working entry */
+    // Free any partial unterminated working entry
     if (aesd_device.working_entry.buffptr) {
         kfree(aesd_device.working_entry.buffptr);
         aesd_device.working_entry.buffptr = NULL;
