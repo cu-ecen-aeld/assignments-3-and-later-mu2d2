@@ -28,7 +28,7 @@ MODULE_LICENSE("Dual BSD/GPL");
 
 struct aesd_dev aesd_device;
 
-static int aesd_open(struct inode *inode, struct file *filp)
+int aesd_open(struct inode *inode, struct file *filp)
 {
     struct aesd_dev *dev;
     PDEBUG("open");
@@ -37,7 +37,7 @@ static int aesd_open(struct inode *inode, struct file *filp)
     return 0;
 }
 
-static int aesd_release(struct inode *inode, struct file *filp)
+int aesd_release(struct inode *inode, struct file *filp)
 {
     PDEBUG("release");
     /**
@@ -46,7 +46,7 @@ static int aesd_release(struct inode *inode, struct file *filp)
     return 0;
 }
 
-static ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
+ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
                 loff_t *f_pos)
 {
     struct aesd_dev *dev = filp->private_data;
@@ -71,7 +71,7 @@ static ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     return retval;
 }
 
-static ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
+ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 loff_t *f_pos)
 {
     struct aesd_dev *dev = filp->private_data;
