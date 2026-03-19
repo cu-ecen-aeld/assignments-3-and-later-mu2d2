@@ -20,6 +20,7 @@
 #include <linux/slab.h>   // kmalloc / kfree
 #include <linux/uaccess.h> // copy_to_user / copy_from_user
 #include "aesdchar.h"
+#include "aesd_ioctl.h"
 int aesd_major =   0; // use dynamic major
 int aesd_minor =   0;
 
@@ -135,10 +136,61 @@ static ssize_t aesd_write(struct file *filp, const char __user *buf, size_t coun
     return (ssize_t)count;
 }
 
+/*
+ * @brief Sums the byte sizes of all committed entries in the circular buffer.
+ *        Caller must hold dev->buf_mutex.
+ * @param dev  pointer to the aesd device
+ * @return total byte count across all valid buffer entries
+ */
+static loff_t aesd_total_size(struct aesd_dev *dev)
+{
+    loff_t total = 0;
+    uint8_t i;
+    uint8_t num_entries = dev->buffer.full ? AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED : (dev->buffer.in_offs - dev->buffer.out_offs + AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+
+    for (i = 0; i < num_entries; i++)
+    {
+        uint8_t idx = (dev->buffer.out_offs + i) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+        total += (loff_t)dev->buffer.entry[idx].size;
+    }
+    return total;
+}
+
+/*
+ * @brief llseek file operation. Acquires lock to determine total buffer size,
+ *        then delegates to fixed_size_llseek for SEEK_SET/SEEK_CUR/SEEK_END logic.
+ * @param filp   open file pointer
+ * @param offset seek offset
+ * @param whence SEEK_SET, SEEK_CUR, or SEEK_END
+ * @return new file position, or negative errno
+ */
+static loff_t aesd_llseek(struct file *filp, loff_t offset, int whence)
+{
+    struct aesd_dev *dev = filp->private_data;
+    loff_t total;
+    loff_t retval;
+
+    if (mutex_lock_interruptible(&dev->buf_mutex))
+    {
+        return -ERESTARTSYS;
+    }
+
+    total = aesd_total_size(dev);
+    mutex_unlock(&dev->buf_mutex);
+
+    PDEBUG("llseek offset %lld whence %d total_size %lld", offset, whence, total);
+
+    retval = fixed_size_llseek(filp, offset, whence, total);
+
+    PDEBUG("llseek new f_pos %lld", retval);
+    return retval;
+}
+
 struct file_operations aesd_fops = {
     .owner =    THIS_MODULE,
     .read =     aesd_read,
     .write =    aesd_write,
+    .llseek =   aesd_llseek,
     .open =     aesd_open,
     .release =  aesd_release,
 };
