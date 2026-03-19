@@ -65,9 +65,14 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 * new start location.
 * Any necessary locking must be handled by the caller
 * Any memory referenced in @param add_entry must be allocated by and/or must have a lifetime managed by the caller.
+* @return the buffptr of the evicted entry when the buffer was full, NULL otherwise.
+*         The caller is responsible for freeing the returned pointer.
 */
-void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
+const char *aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
 {
+    // When full the slot we're about to overwrite holds the oldest entry; save its buffptr
+    const char *old_buffptr = buffer->full ? buffer->entry[buffer->in_offs].buffptr : NULL;
+
     // Write the new entry into the slot at the current write position
     buffer->entry[buffer->in_offs] = *add_entry;
 
@@ -83,6 +88,8 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
 
     // If the write pointer has caught up to the read pointer, all slots are occupied
     buffer->full = (buffer->in_offs == buffer->out_offs);
+
+    return old_buffptr;
 }
 
 /**
