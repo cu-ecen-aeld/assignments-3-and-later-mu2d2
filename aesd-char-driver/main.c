@@ -146,10 +146,12 @@ static loff_t aesd_total_size(struct aesd_dev *dev)
 {
     loff_t total = 0;
     uint8_t i;
+    // When full, all MAX slots are valid; otherwise count live entries via the wrap-safe difference between in_offs and out_offs
     uint8_t num_entries = dev->buffer.full ? AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED : (dev->buffer.in_offs - dev->buffer.out_offs + AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
 
     for (i = 0; i < num_entries; i++)
     {
+        // Walk entries in logical order starting from out_offs, wrapping around
         uint8_t idx = (dev->buffer.out_offs + i) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
         total += (loff_t)dev->buffer.entry[idx].size;
     }
@@ -176,10 +178,13 @@ static loff_t aesd_llseek(struct file *filp, loff_t offset, int whence)
     }
 
     total = aesd_total_size(dev);
+    // Release before calling fixed_size_llseek — that function acquires
+    // f_pos_lock internally, and holding two locks risks deadlock
     mutex_unlock(&dev->buf_mutex);
 
     PDEBUG("llseek offset %lld whence %d total_size %lld", offset, whence, total);
 
+    // fixed_size_llseek handles SEEK_SET/CUR/END bounds-checking against total
     retval = fixed_size_llseek(filp, offset, whence, total);
 
     PDEBUG("llseek new f_pos %lld", retval);
